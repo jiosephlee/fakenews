@@ -12,6 +12,7 @@ import sys
 from torch.optim.swa_utils import AveragedModel, SWALR
 from torch.optim.lr_scheduler import CyclicLR
 import random
+import copy
 import nltk
 nltk.download('punkt')
 from nltk.tokenize import word_tokenize
@@ -174,19 +175,18 @@ if __name__ == "__main__":
     train_texts = [item['statement'] for item in dataset['train']]
     for text in train_texts:
         vocab_set.update(word_tokenize(text.lower()))
-
     # Augment the training dataset!!!
     print("---------Augmenting--------")
     augmented_train_data = []
     for item in train_dataset:
+        augmented_item = copy.deepcopy(item)
         original_text = item['statement']
         noised_text = noise_text(original_text, vocab_set)
-        augmented_train_data.append({'statement': noised_text, 'label': item['label']})
+        augmented_item['statement'] = noised_text
+        augmented_train_data.append(augmented_item)
 
-    # Optionally, you can combine the original and augmented data
-    # Assuming augmented_train_data is a list of dictionaries
-    augmented_dataset = Dataset.from_list(augmented_train_data)
-
+    augmented_dataset = Dataset.from_dict({key: [d[key] for d in augmented_train_data] for key in train_dataset.features}, features=train_dataset.features)
+    print(augmented_dataset)
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
     #train_dataset.extend(augmented_train_data)
