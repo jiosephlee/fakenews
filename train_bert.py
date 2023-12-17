@@ -10,7 +10,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trai
 NUM_EPOCHS = 3
 
 # Training Function for BERT Model
-def train_bert(device, model, train_loader, val_loader, num_epochs):
+def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
     train_loss_values = []
     train_error = []
     val_loss_values = []
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     # Train the model
     print("------------Training-----------")
-    train_error,train_loss_values, val_error, val_loss_values = train_bert(device, model, train_loader, valid_loader, NUM_EPOCHS)
+    train_error,train_loss_values, val_error, val_loss_values = train_bert(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
 
     # Plot the training error
     plt.figure(figsize=(10, 5))

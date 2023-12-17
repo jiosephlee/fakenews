@@ -4,6 +4,8 @@ import torch.nn as nn
 
 """This is a library of baseline models"""
 
+glove_file = "glove.840B.300d.txt"
+
 # Bi-LSTM Model for PyTorch
 class BiLSTMModel(nn.Module):
     def __init__(self, embedding_dim, hidden_dim, vocab_size, num_classes):

@@ -1,6 +1,8 @@
 from torch.utils.data import Dataset
 import torch 
 
+glove_file = "glove.840B.300d.txt"
+
 class TextDataset(Dataset):
     def __init__(self, data, tokenizer):
         """
@@ -26,3 +28,38 @@ class TextDataset(Dataset):
         label = torch.tensor(label)
 
         return input_ids, attention_mask, label
+    
+
+#takes about 1 minute to read through the whole file and find the words we need.
+def get_glove_mapping(vocab, file):
+    """
+    Gets the mapping of words from the vocabulary to pretrained embeddings
+
+    INPUT:
+    vocab       - set of vocabulary words
+    file        - file with pretrained embeddings
+
+    OUTPUT:
+    glove_map   - mapping of words in the vocabulary to the pretrained embedding
+
+    """
+    glove_map = {}
+    with open(file,'rb') as fi:
+        count = 0
+        for l in fi:
+            try:
+                #### STUDENT CODE HERE ####
+                line_str = bytes.decode(l, 'utf-8')
+                count += 1
+                tokens = line_str.split(" ")
+                word = tokens[0]
+                if word in vocab:
+                  # avoid computing the vector if the word is not in vocab
+                  vector = np.array(tokens[1:], dtype='float')
+                  glove_map[word] = vector
+                ## only include vectors that are found in the vocabulary.
+                #### STUDENT CODE ENDS HERE ####
+            except:
+                #some lines have urls, we don't need them.
+                pass
+    return glove_map

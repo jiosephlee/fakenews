@@ -4,11 +4,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
 from datasets import load_dataset
 import torch
+from utils import get_glove_mapping
+from nltk.tokenize import word_tokenize
 
 NUM_EPOCHS = 100
 
 # Training Function
-def train(device, model, train_loader, val_loader, num_epochs):
+def train(device, model, train_loader, val_loader, criterion, optimizer, num_epochs):
     train_loss_values = []
     train_error = []
     val_loss_values = []
@@ -18,7 +20,7 @@ def train(device, model, train_loader, val_loader, num_epochs):
         train_total = 0
         training_loss = 0.0
         for op_params in optimizer.param_groups:
-            op_params['lr'] = op_params['lr'] * 0.99
+            op_params['lr'] = op_params['lr'] * 0.6
         # Training
         model.train()
         for data, labels in train_loader:
@@ -97,3 +99,20 @@ if __name__ == "__main__":
     logistic_predictions = logistic_model.predict(X_val)
     logistic_accuracy = accuracy_score(y_val, logistic_predictions)
     print("Logistic Regression Validation Accuracy:", logistic_accuracy)
+
+    # RNN
+
+    # Tokenize the texts to create a vocabulary set
+    vocab_set = set()
+    for text in train_texts:
+        vocab_set.update(word_tokenize(text.lower()))
+
+    # Glove Mapping for RNN
+
+    vocab_set = set(word for sublist in train_texts for word in sublist)
+    glove_map = get_glove_mapping(vocab_set,"/content/glove.840B.300d.txt")
+    glove_keys = glove_map.keys()
+
+    d_out = 6  # the number of output classes of the model
+    n_embed = len(vocab_set) # the total number of word embeddings in the input layer
+    d_embed = 300 # the dimensionality of each word embedding
