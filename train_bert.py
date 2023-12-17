@@ -2,12 +2,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from utils import TextDataset
+from utils import TextDatasetBase, TextDatasetContext
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+import sys
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
 
-NUM_EPOCHS = 10
+NUM_EPOCHS = 3
 
 # Training Function for BERT Model
 def train_bert(device, model, train_loader, val_loader, num_epochs):
@@ -83,17 +84,37 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load Bert Models
-    tokenizer = AutoTokenizer.from_pretrained('distilbert-base-cased')
-    model = AutoModelForSequenceClassification.from_pretrained('distilbert-base-cased', num_labels=6)
+    # Check if the model name is provided as a command-line argument
+    if len(sys.argv) != 2:
+        print("Usage: python filename.py [model_name]")
+        print("model_name: bert-base-cased, distilbert-base-cased, or roberta-base")
+        sys.exit(1)
+
+    model_name = sys.argv[1]
+    # Validate the model name
+    valid_models = ['bert-base-cased', 'distilbert-base-cased', 'roberta-base']
+
+    if model_name not in valid_models:
+        print("Invalid model name. Choose from bert-base-cased, distilbert-base-cased, or roberta-base.")
+        sys.exit(1)
+    
+    # Run it
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=6)
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-4)
+    lr = 5e-5
+    weight_decay=1e-4
+    if model_name == 'roberta-base':
+        lr = 1e-5
+        weight_decay=1e-4
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     # Generate Loaders & Modify Data
-    train_dataset = TextDataset(train_dataset, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    valid_dataset = TextDataset(valid_dataset, tokenizer)
-    valid_loader = DataLoader(valid_dataset, batch_size=32, shuffle=True)
+    train_dataset = TextDatasetContext(train_dataset, tokenizer)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    valid_dataset = TextDatasetContext(valid_dataset, tokenizer)
+    valid_loader = DataLoader(valid_dataset, batch_size=16, shuffle=True)
 
     # Train the model
     print("------------Training-----------")
