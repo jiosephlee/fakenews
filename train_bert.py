@@ -7,7 +7,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
 
-NUM_EPOCHS = 3
+NUM_EPOCHS = 10
 
 # Training Function for BERT Model
 def train_bert(device, model, train_loader, val_loader, num_epochs):
@@ -20,8 +20,6 @@ def train_bert(device, model, train_loader, val_loader, num_epochs):
         train_total = 0
         training_loss = 0.0
         count = 0
-        for op_params in optimizer.param_groups:
-            op_params['lr'] = op_params['lr'] * 0.9
         # Training
         model.train()
         for input_ids, attention_mask, labels in train_loader:
@@ -41,7 +39,8 @@ def train_bert(device, model, train_loader, val_loader, num_epochs):
             train_total += labels.size(0)
             train_correct += (predicted == labels).sum().item()
             count += 1
-            print(count)
+            if count % 50 == 0:
+                print(f'Epoch {epoch+1} in progress, Training Loss: {training_loss/count}')
         # Validation
         model.eval()
         val_correct = 0
@@ -59,14 +58,15 @@ def train_bert(device, model, train_loader, val_loader, num_epochs):
                     _, predicted = torch.max(outputs.logits, 1)
                     val_total += labels.size(0)
                     val_correct += (predicted == labels).sum().item()
-                    loss = criterion(outputs, labels)
                     validation_loss += loss.item()
             val_loss_values.append(validation_loss / len(val_loader))
             val_error.append(100-100*val_correct/val_total)
+        for op_params in optimizer.param_groups:
+            op_params['lr'] = op_params['lr'] * 0.35
         # Log Model Performance  
-        train_loss_values.append(training_loss)
+        train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
-        print(f'Epoch {epoch+1}, Training Loss: {training_loss}, Validation Error: {val_error[-1]}, Error: {train_error[-1]}')
+        print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
     return train_error,train_loss_values, val_error, val_loss_values
 
 if __name__ == "__main__":
@@ -79,8 +79,8 @@ if __name__ == "__main__":
     test_dataset = dataset["test"]
 
     # Load Device
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load Bert Models
     tokenizer = AutoTokenizer.from_pretrained('distilbert-base-cased')
@@ -91,9 +91,9 @@ if __name__ == "__main__":
 
     # Generate Loaders & Modify Data
     train_dataset = TextDataset(train_dataset, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     valid_dataset = TextDataset(valid_dataset, tokenizer)
-    valid_loader = DataLoader(valid_dataset, batch_size=16, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=32, shuffle=True)
 
     # Train the model
     print("------------Training-----------")
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     plt.title('Validation Error')
     plt.legend()
     plt.show()
-    plt.savefig('training_error_model_autoencoder.png')  # This will save the plot as an image
+    plt.savefig('validation_error.png')  # This will save the plot as an image
 
     # Save the model
     torch.save(model.state_dict(), 'model_state.pth')

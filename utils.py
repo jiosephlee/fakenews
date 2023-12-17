@@ -15,7 +15,7 @@ class TextDataset(Dataset):
 
     def __getitem__(self, idx):
         # Extract text and label from the data structure
-        text, label = self.data[idx]['statement'],self.data[idx]['label']
+        text, label = self.data[idx]['context'] + ': ' + self.data[idx]['statement'],self.data[idx]['label']
 
         # Tokenize the text
         tokenized_text = self.tokenizer(text, padding='max_length', truncation=True, max_length=512, return_tensors="pt")
