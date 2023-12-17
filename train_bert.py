@@ -5,13 +5,86 @@ import matplotlib.pyplot as plt
 from utils import TextDatasetBase, TextDatasetContext
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-import sys
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
+# Additiona Libraries
+import sys
+from torch.optim.swa_utils import AveragedModel, SWALR
+from torch.optim.lr_scheduler import CyclicLR
 
-NUM_EPOCHS = 3
+NUM_EPOCHS = 4
 
 # Training Function for BERT Model
-def train_bert(device, model, train_loader, val_loader, num_epochs):
+def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_epochs):
+    train_loss_values = []
+    train_error = []
+    val_loss_values = []
+    val_error = []
+    swa_model = AveragedModel(model)
+    swa_start = num_epochs // 2
+    scheduler = CyclicLR(optimizer, base_lr=1e-7, max_lr=5e-4, step_size_up=5, step_size_down=2, mode='exp_range', cycle_momentum=False)
+    for epoch in range(num_epochs):
+        train_correct = 0
+        train_total = 0
+        training_loss = 0.0
+        count = 0
+        # Training
+        model.train()
+        for input_ids, attention_mask, labels in train_loader:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
+            # Run the BERT Model
+            outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+            # Backpropogate & Optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            # Update learning rate
+            scheduler.step()
+            # Update SWA after swa_start epochs
+            if epoch >= swa_start:
+                swa_model.update_parameters(model)
+            # For logging purposes
+            training_loss += loss.item()
+            _, predicted = torch.max(outputs.logits, 1)
+            train_total += labels.size(0)
+            train_correct += (predicted == labels).sum().item()
+            count += 1
+            if count % 50 == 0:
+                print(f'Epoch {epoch+1} in progress, Training Loss: {training_loss/count}')
+        # Validation
+        model.eval()
+        val_correct = 0
+        val_total = 0
+        validation_loss = 0.0
+        if val_loader is not None:
+            with torch.no_grad():
+                for input_ids, attention_mask, labels in valid_loader:
+                    input_ids = input_ids.to(device)
+                    attention_mask = attention_mask.to(device)
+                    labels = labels.to(device)
+                    # Run the BERT Model
+                    outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+                    loss = outputs.loss
+                    _, predicted = torch.max(outputs.logits, 1)
+                    val_total += labels.size(0)
+                    val_correct += (predicted == labels).sum().item()
+                    validation_loss += loss.item()
+            val_loss_values.append(validation_loss / len(val_loader))
+            val_error.append(100-100*val_correct/val_total)
+        for op_params in optimizer.param_groups:
+            op_params['lr'] = op_params['lr'] * 0.35
+        # Log Model Performance  
+        train_loss_values.append(training_loss/len(train_loader))
+        train_error.append(100-100*train_correct/train_total)
+        print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
+        # Update batch normalization in SWA model
+        torch.optim.swa_utils.update_bn(train_loader, swa_model)
+    return train_error,train_loss_values, val_error, val_loss_values
+
+# Training Function for BERT Model
+def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
     train_loss_values = []
     train_error = []
     val_loss_values = []
@@ -118,7 +191,7 @@ if __name__ == "__main__":
 
     # Train the model
     print("------------Training-----------")
-    train_error,train_loss_values, val_error, val_loss_values = train_bert(device, model, train_loader, valid_loader, NUM_EPOCHS)
+    train_error,train_loss_values, val_error, val_loss_values = train_bert(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
 
     # Plot the training error
     plt.figure(figsize=(10, 5))
