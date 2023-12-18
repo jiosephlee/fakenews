@@ -1,5 +1,9 @@
 from torch.utils.data import Dataset
+from datasets import Dataset
 import torch 
+import numpy as np
+import copy
+import random
 
 glove_file = "glove.840B.300d.txt"
 
@@ -55,6 +59,27 @@ class TextDatasetBase(Dataset):
 
         return input_ids, attention_mask, label
     
+def noise_text(text, vocabulary, noise_ratio=0.2):
+    tokens = text.split()
+    noised_tokens = []
+    for token in tokens:
+        if random.random() < noise_ratio:
+            # Apply noise - here, we simply mask the token, but you can modify this
+            noised_tokens.append(random.choice(list(vocabulary)))
+        else:
+            noised_tokens.append(token)
+    return ' '.join(noised_tokens)
+
+def augment_with_noise(sample_dataset, train_dataset, vocab_set):
+    augmented_train_data = []
+    for item in sample_dataset:
+        augmented_item = copy.deepcopy(item)
+        original_text = item['statement']
+        noised_text = noise_text(original_text, vocab_set)
+        augmented_item['statement'] = noised_text
+        augmented_train_data.append(augmented_item)
+    augmented_dataset = Dataset.from_dict({key: [d[key] for d in augmented_train_data] for key in train_dataset.features}, features=train_dataset.features) 
+    return augmented_dataset
 
 #takes about 1 minute to read through the whole file and find the words we need.
 def get_glove_mapping(vocab, file):
@@ -69,6 +94,7 @@ def get_glove_mapping(vocab, file):
     glove_map   - mapping of words in the vocabulary to the pretrained embedding
 
     """
+
     glove_map = {}
     with open(file,'rb') as fi:
         count = 0
@@ -89,3 +115,4 @@ def get_glove_mapping(vocab, file):
                 #some lines have urls, we don't need them.
                 pass
     return glove_map
+

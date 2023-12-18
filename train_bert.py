@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from utils import TextDatasetBase, TextDatasetContext
+from utils import TextDatasetBase, TextDatasetContext, augment_with_noise
 from datasets import load_dataset, Dataset, concatenate_datasets
 from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
@@ -18,7 +18,6 @@ nltk.download('punkt')
 from nltk.tokenize import word_tokenize
 
 NUM_EPOCHS = 4
-
 
 # Training Function for BERT Model
 def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_epochs):
@@ -150,17 +149,6 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
     return train_error,train_loss_values, val_error, val_loss_values
 
-def noise_text(text, vocabulary, noise_ratio=0.15):
-    tokens = text.split()
-    noised_tokens = []
-    for token in tokens:
-        if random.random() < noise_ratio:
-            # Apply noise - here, we simply mask the token, but you can modify this
-            noised_tokens.append(random.choice(list(vocabulary)))
-        else:
-            noised_tokens.append(token)
-    return ' '.join(noised_tokens)
-
 if __name__ == "__main__":
     # Load the LIAR dataset
     dataset = load_dataset("liar")
@@ -177,19 +165,12 @@ if __name__ == "__main__":
         vocab_set.update(word_tokenize(text.lower()))
     # Augment the training dataset!!!
     print("---------Augmenting--------")
-    augmented_train_data = []
-    for item in train_dataset:
-        augmented_item = copy.deepcopy(item)
-        original_text = item['statement']
-        noised_text = noise_text(original_text, vocab_set)
-        augmented_item['statement'] = noised_text
-        augmented_train_data.append(augmented_item)
-
-    augmented_dataset = Dataset.from_dict({key: [d[key] for d in augmented_train_data] for key in train_dataset.features}, features=train_dataset.features)
+    augmented_dataset = augment_with_noise(train_dataset, vocab_set)
+    
     print(augmented_dataset)
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
-    #train_dataset.extend(augmented_train_data)
+
     print("---------Finished Augmenting--------")
 
     # Load Device
