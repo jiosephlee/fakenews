@@ -285,8 +285,8 @@ if __name__ == "__main__":
             _, predicted = torch.max(outputs.logits, 1)
             test_total += labels.size(0)
             test_correct += (predicted == labels).sum().item()
-    test_accuracy = 100 * test_correct / test_total
-    print(f'Last Version, Test Accuracy: {test_accuracy}%')
+    test_accuracy_1 = 100 * test_correct / test_total
+    print(f'Last Version, Test Accuracy: {test_accuracy_1}%')
 
     swa_model.eval()
     test_correct = 0
@@ -300,8 +300,8 @@ if __name__ == "__main__":
             _, predicted = torch.max(outputs.logits, 1)
             test_total += labels.size(0)
             test_correct += (predicted == labels).sum().item()
-    test_accuracy = 100 * test_correct / test_total
-    print(f'Averaged Model Test Accuracy: {test_accuracy}%')
+    test_accuracy_2 = 100 * test_correct / test_total
+    print(f'Averaged Model Test Accuracy: {test_accuracy_2}%')
 
     # Load the best model
     model.load_state_dict(torch.load('best_model_checkpoint.pth'))
@@ -318,13 +318,13 @@ if __name__ == "__main__":
             _, predicted = torch.max(outputs.logits, 1)
             test_total += labels.size(0)
             test_correct += (predicted == labels).sum().item()
-    test_accuracy = 100 * test_correct / test_total
-    print(f'Best Val Model, Test Accuracy: {test_accuracy}%')
+    test_accuracy_3 = 100 * test_correct / test_total
+    print(f'Best Val Model, Test Accuracy: {test_accuracy_3}%')
 
     # The string to be written to the file
-    string_to_write = f"Last Version, Test Accuracy: {test_accuracy}%\nAveraged Model Test Accuracy: {test_accuracy}%\nBest Val Model, Test Accuracy: {test_accuracy}%"
+    string_to_write = f"Last Version, Test Accuracy: {test_accuracy_1}%\nAveraged Model Test Accuracy: {test_accuracy_2}%\nBest Val Model, Test Accuracy: {test_accuracy_3}%"
 
     # Open a file in write mode
-    with open(f'{model_name}_{num_of_aug}', 'w') as file:
+    with open(f'{model_name}_{num_of_aug}.txt', 'w') as file:
         # Write the string to the file
         file.write(string_to_write)
