@@ -1,4 +1,4 @@
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset as DatasetClass
 from datasets import Dataset
 import torch 
 import numpy as np
@@ -7,7 +7,7 @@ import random
 
 glove_file = "glove.840B.300d.txt"
 
-class TextDatasetContext(Dataset):
+class TextDatasetContext(DatasetClass):
     def __init__(self, data, tokenizer):
         """
         data: A list of tuples, where each tuple contains the text and its corresponding label.
@@ -33,7 +33,7 @@ class TextDatasetContext(Dataset):
 
         return input_ids, attention_mask, label
     
-class TextDatasetBase(Dataset):
+class TextDatasetBase(DatasetClass):
     def __init__(self, data, tokenizer):
         """
         data: A list of tuples, where each tuple contains the text and its corresponding label.

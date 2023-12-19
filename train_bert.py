@@ -9,15 +9,14 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
 # Additional Libraries
 import sys
+import csv
 from torch.optim.swa_utils import AveragedModel, SWALR
 from torch.optim.lr_scheduler import CyclicLR
-import random
-import copy
 import nltk
 nltk.download('punkt')
 from nltk.tokenize import word_tokenize
 
-NUM_EPOCHS = 4
+NUM_EPOCHS = 25
 
 # Training Function for BERT Model
 def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_epochs):
@@ -25,14 +24,16 @@ def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_
     train_error = []
     val_loss_values = []
     val_error = []
-    swa_model = AveragedModel(model)
+    #swa_model = AveragedModel(model)
     swa_start = num_epochs // 2
-    scheduler = CyclicLR(optimizer, base_lr=1e-7, max_lr=5e-4, step_size_up=5, step_size_down=2, mode='exp_range', cycle_momentum=False)
+    scheduler = None
     for epoch in range(num_epochs):
         train_correct = 0
         train_total = 0
         training_loss = 0.0
         count = 0
+        if epoch == swa_start:
+            scheduler = CyclicLR(optimizer, base_lr=1e-6, max_lr=5e-5, step_size_up=500, step_size_down=1500, mode='exp_range', cycle_momentum=False)
         # Training
         model.train()
         for input_ids, attention_mask, labels in train_loader:
@@ -47,10 +48,11 @@ def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_
             loss.backward()
             optimizer.step()
             # Update learning rate
-            scheduler.step()
-            # Update SWA after swa_start epochs
             if epoch >= swa_start:
-                swa_model.update_parameters(model)
+                scheduler.step()
+            # Update SWA after swa_start epochs
+            #if epoch >= swa_start:
+                #swa_model.update_parameters(model)
             # For logging purposes
             training_loss += loss.item()
             _, predicted = torch.max(outputs.logits, 1)
@@ -79,14 +81,15 @@ def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_
                     validation_loss += loss.item()
             val_loss_values.append(validation_loss / len(val_loader))
             val_error.append(100-100*val_correct/val_total)
-        for op_params in optimizer.param_groups:
-            op_params['lr'] = op_params['lr'] * 0.35
+        if epoch < swa_start:
+            for op_params in optimizer.param_groups:
+                op_params['lr'] = op_params['lr'] * 0.8
         # Log Model Performance  
         train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
         # Update batch normalization in SWA model
-        torch.optim.swa_utils.update_bn(train_loader, swa_model)
+        #torch.optim.swa_utils.update_bn(train_loader, swa_model)
     return train_error,train_loss_values, val_error, val_loss_values
 
 # Training Function for BERT Model
@@ -95,6 +98,7 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
     train_error = []
     val_loss_values = []
     val_error = []
+    best_val_error = 100
     for epoch in range(num_epochs):
         train_correct = 0
         train_total = 0
@@ -142,10 +146,14 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
             val_loss_values.append(validation_loss / len(val_loader))
             val_error.append(100-100*val_correct/val_total)
         for op_params in optimizer.param_groups:
-            op_params['lr'] = op_params['lr'] * 0.35
+            op_params['lr'] = op_params['lr'] * 0.8
         # Log Model Performance  
         train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
+        if val_error > best_val_error:
+            best_val_error = val_error
+            # Save the best model
+            torch.save(model.state_dict(), 'best_model_checkpoint.pth')
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
     return train_error,train_loss_values, val_error, val_loss_values
 
@@ -165,12 +173,12 @@ if __name__ == "__main__":
         vocab_set.update(word_tokenize(text.lower()))
     # Augment the training dataset!!!
     print("---------Augmenting--------")
-    augmented_dataset = augment_with_noise(train_dataset, vocab_set)
-    
+    temp = [row for row in train_dataset]
+    augmented_dataset = augment_with_noise(temp[:2500],train_dataset, vocab_set)
     print(augmented_dataset)
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
-
+    print(train_dataset[0])
     print("---------Finished Augmenting--------")
 
     # Load Device
@@ -195,10 +203,13 @@ if __name__ == "__main__":
     # Initialize Pre-trained Models & Hyperparameters
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=6)
+    print(model.classifier.dropout.p)
+    #model.classifier.dropout.p = 0.3 
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     lr = 5e-5
     weight_decay=1e-4
+    batch_size = 16
     if model_name == 'roberta-base':
         lr = 1e-5
         weight_decay=1e-4
@@ -206,23 +217,65 @@ if __name__ == "__main__":
 
     # Generate Loaders & Modify Data
     train_dataset = TextDatasetContext(train_dataset, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     valid_dataset = TextDatasetContext(valid_dataset, tokenizer)
-    valid_loader = DataLoader(valid_dataset, batch_size=16, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
+    test_dataset = TextDatasetContext(test_dataset, tokenizer)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
     # Train the model
     print("------------Training-----------")
-    train_error,train_loss_values, val_error, val_loss_values = train_bert(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
+    train_error,train_loss_values, val_error, val_loss_values = train_bert_cyclical(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
 
-    # Plot the training error
+    print("-------------Saving Results--------")
+    # Plot Training and Validation Error
     plt.figure(figsize=(10, 5))
-    plt.plot(val_error, label='Validation Loss')
+    plt.plot(train_error, label='Training Error')
+    plt.plot(val_error, label='Validation Error')
     plt.xlabel('Epoch')
     plt.ylabel('Error')
-    plt.title('Validation Error')
+    plt.title(f'Training and Validation Error of Roberta-Base\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
+    plt.savefig('train_val_error.png')
     plt.show()
-    plt.savefig('validation_error.png')  # This will save the plot as an image
 
-    # Save the model
-    torch.save(model.state_dict(), 'model_state.pth')
+    # Plot Training and Validation Loss
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_loss_values, label='Training Loss')
+    plt.plot(val_loss_values, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Training and Validation Loss of Roberta-Base\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.legend()
+    plt.savefig('train_val_loss.png')
+    plt.show()
+
+    with open('training_results_roberts_2500_context.csv', 'w', newline='') as file:
+        writer = csv.writer(file)
+
+        # Write the header
+        writer.writerow(['Epoch', 'Training Error', 'Training Loss', 'Validation Error', 'Validation Loss'])
+
+        # Write the data
+        for epoch, (tr_err, tr_loss, val_err, val_loss) in enumerate(zip(train_error, train_loss_values, val_error, val_loss_values), 1):
+            writer.writerow([epoch, tr_err, tr_loss, val_err, val_loss])
+
+        print("Data written to training_results.csv")
+        
+    # Load the best model
+    model.load_state_dict(torch.load('best_model_checkpoint.pth'))
+     # Test the model
+    model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for input_ids, attention_mask, labels in test_loader:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
+            outputs = model(input_ids, attention_mask=attention_mask)
+            _, predicted = torch.max(outputs.logits, 1)
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+    test_accuracy = 100 * test_correct / test_total
+    print(f'Test Accuracy: {test_accuracy}%')
