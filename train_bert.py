@@ -25,6 +25,7 @@ def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_
     val_loss_values = []
     val_error = []
     #swa_model = AveragedModel(model)
+    best_val_error = 100
     swa_start = num_epochs // 2
     scheduler = None
     for epoch in range(num_epochs):
@@ -87,6 +88,10 @@ def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_
         # Log Model Performance  
         train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
+        if val_error[-1] < best_val_error:
+            best_val_error = val_error[-1]
+            # Save the best model
+            torch.save(model.state_dict(), 'best_model_checkpoint.pth')
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
         # Update batch normalization in SWA model
         #torch.optim.swa_utils.update_bn(train_loader, swa_model)
@@ -150,7 +155,7 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
         # Log Model Performance  
         train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
-        if val_error > best_val_error:
+        if val_error[-1] < best_val_error:
             best_val_error = val_error
             # Save the best model
             torch.save(model.state_dict(), 'best_model_checkpoint.pth')
@@ -174,7 +179,7 @@ if __name__ == "__main__":
     # Augment the training dataset!!!
     print("---------Augmenting--------")
     temp = [row for row in train_dataset]
-    augmented_dataset = augment_with_noise(temp[:2500],train_dataset, vocab_set)
+    augmented_dataset = augment_with_noise(temp[:5000],train_dataset, vocab_set)
     print(augmented_dataset)
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
@@ -203,8 +208,6 @@ if __name__ == "__main__":
     # Initialize Pre-trained Models & Hyperparameters
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=6)
-    print(model.classifier.dropout.p)
-    #model.classifier.dropout.p = 0.3 
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     lr = 5e-5
@@ -234,7 +237,7 @@ if __name__ == "__main__":
     plt.plot(val_error, label='Validation Error')
     plt.xlabel('Epoch')
     plt.ylabel('Error')
-    plt.title(f'Training and Validation Error of Roberta-Base\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Error of Roberta-Base-5000\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
     plt.savefig('train_val_error.png')
     plt.show()
@@ -245,12 +248,12 @@ if __name__ == "__main__":
     plt.plot(val_loss_values, label='Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title(f'Training and Validation Loss of Roberta-Base\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Loss of Roberta-Base-5000\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
     plt.savefig('train_val_loss.png')
     plt.show()
 
-    with open('training_results_roberts_2500_context.csv', 'w', newline='') as file:
+    with open('training_results_roberts_5000_context.csv', 'w', newline='') as file:
         writer = csv.writer(file)
 
         # Write the header
@@ -261,7 +264,7 @@ if __name__ == "__main__":
             writer.writerow([epoch, tr_err, tr_loss, val_err, val_loss])
 
         print("Data written to training_results.csv")
-        
+
     # Load the best model
     model.load_state_dict(torch.load('best_model_checkpoint.pth'))
      # Test the model
