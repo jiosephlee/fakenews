@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from utils import TextDatasetBase, TextDatasetContext, augment_with_noise
+from utils import TextDatasetBase, TextDatasetContext, augment_with_noise, augment_with_deletion, augment_with_noise_pos
 from datasets import load_dataset, Dataset, concatenate_datasets
 from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
@@ -16,7 +16,7 @@ import nltk
 nltk.download('punkt')
 from nltk.tokenize import word_tokenize
 
-NUM_EPOCHS = 25
+NUM_EPOCHS = 5
 
 # Training Function for BERT Model
 def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_epochs):
@@ -104,6 +104,8 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
     val_loss_values = []
     val_error = []
     best_val_error = 100
+    swa_model = AveragedModel(model)
+    swa_start = 1
     for epoch in range(num_epochs):
         train_correct = 0
         train_total = 0
@@ -130,6 +132,8 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
             count += 1
             if count % 50 == 0:
                 print(f'Epoch {epoch+1} in progress, Training Loss: {training_loss/count}')
+        if epoch >= swa_start:
+            swa_model.update_parameters(model)
         # Validation
         model.eval()
         val_correct = 0
@@ -151,16 +155,17 @@ def train_bert(device, model, train_loader, val_loader, optimizer, num_epochs):
             val_loss_values.append(validation_loss / len(val_loader))
             val_error.append(100-100*val_correct/val_total)
         for op_params in optimizer.param_groups:
-            op_params['lr'] = op_params['lr'] * 0.8
+            op_params['lr'] = op_params['lr'] * 0.9
         # Log Model Performance  
         train_loss_values.append(training_loss/len(train_loader))
         train_error.append(100-100*train_correct/train_total)
         if val_error[-1] < best_val_error:
-            best_val_error = val_error
+            best_val_error = val_error[-1]
             # Save the best model
             torch.save(model.state_dict(), 'best_model_checkpoint.pth')
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
-    return train_error,train_loss_values, val_error, val_loss_values
+        torch.optim.swa_utils.update_bn(train_loader, swa_model)
+    return train_error,train_loss_values, val_error, val_loss_values, swa_model
 
 if __name__ == "__main__":
     # Load the LIAR dataset
@@ -179,11 +184,13 @@ if __name__ == "__main__":
     # Augment the training dataset!!!
     print("---------Augmenting--------")
     temp = [row for row in train_dataset]
-    augmented_dataset = augment_with_noise(temp[:5000],train_dataset, vocab_set)
-    print(augmented_dataset)
+    num_of_aug = int(sys.argv[2])
+    augmented_dataset = augment_with_noise(temp[:num_of_aug],train_dataset, vocab_set)
+    augmented_dataset_2 = augment_with_noise_pos(temp[num_of_aug:2*num_of_aug],train_dataset, vocab_set)
+    augmented_dataset_3 = augment_with_deletion(temp[2*num_of_aug:3*num_of_aug],train_dataset, vocab_set)
+    print(augmented_dataset[0])
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
-    print(train_dataset[0])
     print("---------Finished Augmenting--------")
 
     # Load Device
@@ -192,7 +199,7 @@ if __name__ == "__main__":
 
     # Load Bert Models
     # Check if the model name is provided as a command-line argument
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print("Usage: python filename.py [model_name]")
         print("model_name: bert-base-cased, distilbert-base-cased, or roberta-base")
         sys.exit(1)
@@ -214,7 +221,7 @@ if __name__ == "__main__":
     weight_decay=1e-4
     batch_size = 16
     if model_name == 'roberta-base':
-        lr = 1e-5
+        lr = 2e-5
         weight_decay=1e-4
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -228,7 +235,7 @@ if __name__ == "__main__":
 
     # Train the model
     print("------------Training-----------")
-    train_error,train_loss_values, val_error, val_loss_values = train_bert_cyclical(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
+    train_error,train_loss_values, val_error, val_loss_values, swa_model = train_bert(device, model, train_loader, valid_loader, optimizer, NUM_EPOCHS)
 
     print("-------------Saving Results--------")
     # Plot Training and Validation Error
@@ -237,9 +244,9 @@ if __name__ == "__main__":
     plt.plot(val_error, label='Validation Error')
     plt.xlabel('Epoch')
     plt.ylabel('Error')
-    plt.title(f'Training and Validation Error of Roberta-Base-5000\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Error of {model_name}-{num_of_aug}\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
-    plt.savefig('train_val_error.png')
+    plt.savefig(f'train_val_error_{model_name}_{num_of_aug}.png')
     plt.show()
 
     # Plot Training and Validation Loss
@@ -248,12 +255,12 @@ if __name__ == "__main__":
     plt.plot(val_loss_values, label='Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title(f'Training and Validation Loss of Roberta-Base-5000\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Loss of {model_name}-{num_of_aug}\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
-    plt.savefig('train_val_loss.png')
+    plt.savefig(f'train_val_loss_{model_name}_{num_of_aug}.png')
     plt.show()
 
-    with open('training_results_roberts_5000_context.csv', 'w', newline='') as file:
+    with open(f'training_results_{model_name}_{num_of_aug}.csv', 'w', newline='') as file:
         writer = csv.writer(file)
 
         # Write the header
@@ -264,6 +271,36 @@ if __name__ == "__main__":
             writer.writerow([epoch, tr_err, tr_loss, val_err, val_loss])
 
         print("Data written to training_results.csv")
+
+    model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for input_ids, attention_mask, labels in test_loader:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
+            outputs = model(input_ids, attention_mask=attention_mask)
+            _, predicted = torch.max(outputs.logits, 1)
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+    test_accuracy = 100 * test_correct / test_total
+    print(f'Last Version, Test Accuracy: {test_accuracy}%')
+
+    swa_model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for input_ids, attention_mask, labels in test_loader:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
+            outputs = swa_model(input_ids, attention_mask=attention_mask)
+            _, predicted = torch.max(outputs.logits, 1)
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+    test_accuracy = 100 * test_correct / test_total
+    print(f'Averaged Model Test Accuracy: {test_accuracy}%')
 
     # Load the best model
     model.load_state_dict(torch.load('best_model_checkpoint.pth'))
@@ -281,4 +318,12 @@ if __name__ == "__main__":
             test_total += labels.size(0)
             test_correct += (predicted == labels).sum().item()
     test_accuracy = 100 * test_correct / test_total
-    print(f'Test Accuracy: {test_accuracy}%')
+    print(f'Best Val Model, Test Accuracy: {test_accuracy}%')
+
+    # The string to be written to the file
+    string_to_write = f"Last Version, Test Accuracy: {test_accuracy}%\nAveraged Model Test Accuracy: {test_accuracy}%\nBest Val Model, Test Accuracy: {test_accuracy}%"
+
+    # Open a file in write mode
+    with open(f'{model_name}_{num_of_aug}', 'w') as file:
+        # Write the string to the file
+        file.write(string_to_write)
