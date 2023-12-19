@@ -188,7 +188,8 @@ if __name__ == "__main__":
     augmented_dataset = augment_with_noise(temp[:num_of_aug],train_dataset, vocab_set)
     augmented_dataset_2 = augment_with_noise_pos(temp[num_of_aug:2*num_of_aug],train_dataset, vocab_set)
     augmented_dataset_3 = augment_with_deletion(temp[2*num_of_aug:3*num_of_aug],train_dataset, vocab_set)
-    print(augmented_dataset[0])
+    if len(augmented_dataset) > 0:
+        print(augmented_dataset[0])
     # Concatenate the original train_dataset with the augmented_dataset
     train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
     print("---------Finished Augmenting--------")
