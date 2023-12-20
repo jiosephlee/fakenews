@@ -9,6 +9,7 @@ import numpy as np
 from models import BiLSTMModel
 from utils import get_glove_mapping
 from nltk.tokenize import word_tokenize
+from torch.optim.swa_utils import AveragedModel
 import nltk
 nltk.download('punkt')
 
@@ -35,6 +36,8 @@ def train_rnn(device, model, train_loader, val_loader, criterion, optimizer, num
     train_error = []
     val_loss_values = []
     val_error = []
+    swa_model = AveragedModel(model)
+    swa_start = 1
     for epoch in range(num_epochs):
         train_correct = 0
         train_total = 0
@@ -55,7 +58,11 @@ def train_rnn(device, model, train_loader, val_loader, criterion, optimizer, num
             _, predicted = torch.max(output.data, 1)
             train_total += labels.size(0)
             train_correct += (predicted == labels).sum().item()
+        if epoch >= swa_start:
+            swa_model.update_parameters(model)
         # Validation
+        torch.optim.swa_utils.update_bn(train_loader, swa_model)
+
         model.eval()
         val_correct = 0
         val_total = 0
@@ -78,7 +85,7 @@ def train_rnn(device, model, train_loader, val_loader, criterion, optimizer, num
         print(f'Epoch {epoch+1}, Training Loss: {training_loss/len(train_loader)}, Validation Error: {val_error[-1]}, Training Error: {train_error[-1]}')
         for op_params in optimizer.param_groups:
             op_params['lr'] = op_params['lr'] * 0.6
-    return train_error,train_loss_values, val_error, val_loss_values
+    return train_error,train_loss_values, val_error, val_loss_values, swa_model
 
 # Function to convert sentences to sequences of indices
 def text_to_sequence(texts, vocab_map):
@@ -144,19 +151,7 @@ if __name__ == "__main__":
     dataset = load_dataset("liar")
     train_dataset = dataset['train']
     valid_dataset = dataset['validation']
-    # Augment the training dataset!!!
-    #print("---------Augmenting--------")
-    # vocab_set = set()
-    # train_texts = [item['statement'] for item in dataset['train']]
-    # for text in train_texts:
-    #     vocab_set.update(word_tokenize(text))
-    # print(train_dataset)
-    # temp = [row for row in train_dataset]
-    # augmented_dataset = augment_with_noise(temp[:500],train_dataset, vocab_set)
-    
-    # print(augmented_dataset)
-    # # Concatenate the original train_dataset with the augmented_dataset
-    # train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
+    test_dataset = dataset["test"]
 
     print("------------Processing Data-----------")
     # Tokenize the sentences to get a vocabulary
@@ -164,6 +159,7 @@ if __name__ == "__main__":
         return [word_tokenize(sentence['statement']) for sentence in dataset]
     train_sequences = tokenize_dataset(train_dataset)
     valid_sequences = tokenize_dataset(valid_dataset)
+    test_sequences = tokenize_dataset(test_dataset)
 
     # Build vocab that handles going from token -> id
     vocab = Vocabulary()
@@ -176,7 +172,7 @@ if __name__ == "__main__":
     # Convert texts to sequences of indices using vocab
     train_sequences = text_to_sequence(train_sequences, vocab)
     valid_sequences = text_to_sequence(valid_sequences, vocab)
-
+    test_sequences = text_to_sequence(test_sequences, vocab)
     # Glove Mapping that gives word -> embeddings 
     glove_map = get_glove_mapping(vocab_set,"glove.840B.300d.txt")
 
@@ -191,19 +187,22 @@ if __name__ == "__main__":
     # Padding Sequence 
     train_sequences, train_lengths = pad_sequences(train_sequences)
     valid_sequences, valid_lengths = pad_sequences(valid_sequences)
+    test_sequences, test_lengths = pad_sequences(test_sequences)
     
     # Preparing input
     train_labels = torch.tensor(np.array([item['label'] for item in train_dataset]), dtype=torch.long)
     valid_labels = torch.tensor(np.array([item['label'] for item in valid_dataset]), dtype=torch.long)
+    test_labels = torch.tensor(np.array([item['label'] for item in test_dataset]), dtype=torch.long)
     # Create datasets and dataloaders
     train_dataset = SequenceDataset(train_sequences, train_lengths, train_labels)
     valid_dataset = SequenceDataset(valid_sequences, valid_lengths, valid_labels)
-
-    batch_size = 64  # Adjust as needed
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size)
+    test_dataset = SequenceDataset(test_sequences, test_lengths, test_labels)
 
     print("------------Training-----------")
+    batch_size = 64 
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
     d_hidden = 150
     model = BiLSTMModel(embedding_matrix,d_embed,d_hidden,d_out,dropout=0.6,num_layers=2) 
     model = model.to(device)
@@ -211,7 +210,7 @@ if __name__ == "__main__":
     lr = 5e-4
     weight_decay=1e-4
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    train_error,train_loss_values, val_error, val_loss_values = train_rnn(device, model, train_loader, valid_loader, criterion, optimizer, NUM_EPOCHS)
+    train_error,train_loss_values, val_error, val_loss_values, swa_model = train_rnn(device, model, train_loader, valid_loader, criterion, optimizer, NUM_EPOCHS)
 
     # Plot the training error
     plt.figure(figsize=(10, 5))
@@ -222,3 +221,37 @@ if __name__ == "__main__":
     plt.legend()
     plt.show()
     plt.savefig('rnn_validation_error.png')  # This will save the plot as an image
+
+    model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for sequences, lengths, labels in test_loader:
+            sequences, lengths, labels = sequences.to(device), lengths.to(device), labels.to(device)
+            outputs = model(sequences, lengths)
+            _, predicted = torch.max(outputs.data, 1)
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+    test_accuracy = 100 * test_correct / test_total
+    print(f'Test Accuracy: {test_accuracy}%')
+
+    swa_model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for sequences, lengths, labels in test_loader:
+            sequences, lengths, labels = sequences.to(device), lengths.to(device), labels.to(device)
+            outputs = model(sequences, lengths)
+            _, predicted = torch.max(outputs.data, 1)
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+    test_accuracy_2 = 100 * test_correct / test_total
+    print(f'Test Accuracy: {test_accuracy_2}%')
+
+    # The string to be written to the file
+    string_to_write = f'Test Accuracy: {test_accuracy}%\nSWA Test Accuracy: {test_accuracy_2}%'
+
+    # Open a file in write mode
+    with open(f'rnn.txt', 'w') as file:
+        # Write the string to the file
+        file.write(string_to_write)

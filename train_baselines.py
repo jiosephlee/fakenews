@@ -8,6 +8,7 @@ import torch
 from utils import get_glove_mapping
 from nltk.tokenize import word_tokenize
 
+
 if __name__ == "__main__":
     # Load the LIAR dataset
     dataset = load_dataset("liar")
@@ -17,6 +18,8 @@ if __name__ == "__main__":
     train_labels = [item['label'] for item in dataset['train']]
     valid_texts = [item['statement'] for item in dataset['validation']]
     valid_labels = [item['label'] for item in dataset['validation']]
+    test_texts = [item['statement'] for item in dataset['test']]
+    test_labels = [item['label'] for item in dataset['test']]
 
     # Initialize the TF-IDF vectorizer
     vectorizer = TfidfVectorizer()
@@ -28,6 +31,10 @@ if __name__ == "__main__":
     # Transform the validation data
     X_val = vectorizer.transform(valid_texts)
     y_val = valid_labels
+
+    # Test 
+    X_test = vectorizer.transform(test_texts)
+    y_test = test_labels
 
     # SVM Model
     svm_model = SVC()
@@ -87,6 +94,7 @@ if __name__ == "__main__":
     logistic_accuracies = []
 
     # Perform 4-fold cross-validation with best parameters
+    """
     for train_index, val_index in kf.split(all_texts_vectorized):
         X_train, X_val = all_texts_vectorized[train_index], all_texts_vectorized[val_index]
         y_train, y_val = [all_labels[i] for i in train_index], [all_labels[i] for i in val_index]
@@ -102,7 +110,16 @@ if __name__ == "__main__":
         logistic_model.fit(X_train, y_train)
         logistic_predictions = logistic_model.predict(X_val)
         logistic_accuracies.append(accuracy_score(y_val, logistic_predictions))
-
     # Calculate and print average accuracies
     print("Average SVM Validation Accuracy:", sum(svm_accuracies) / len(svm_accuracies))
-    print("Average Logistic Regression Validation Accuracy:", sum(logistic_accuracies) / len(logistic_accuracies))
+    print("Average Logistic Regression Validation Accuracy:", sum(logistic_accuracies) / len(logistic_accuracies
+    ))"""
+     # Evaluate SVM Model
+    svm_predictions = svm_model.predict(X_test)
+    svm_accuracy = accuracy_score(y_test, svm_predictions)
+    print("SVM Test Accuracy:", svm_accuracy)
+
+    # Evaluate Logistic Regression Model
+    logistic_predictions = logistic_model.predict(X_test)
+    logistic_accuracy = accuracy_score(y_test, logistic_predictions)
+    print("Logistic Regression Test Accuracy:", logistic_accuracy)  
