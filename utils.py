@@ -5,6 +5,7 @@ import numpy as np
 import copy
 import random
 import nltk
+import re
 nltk.download('averaged_perceptron_tagger')
 
 
@@ -93,42 +94,56 @@ class TextDatasetBase(DatasetClass):
 
         return input_ids, attention_mask, label
     
-def noise_text(text, vocabulary, noise_ratio=0.15):
-    tokens = text.split()
+def noise_text(text, vocabulary, noise_ratio=0.075):
+    # Use regular expression to split the text, keeping punctuation as separate tokens
+    tokens = re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
     noised_tokens = []
     for token in tokens:
-        if random.random() < noise_ratio:
+        print(token)
+        # Check if the token is a word (and not punctuation)
+        if token.isalpha() and random.random() < noise_ratio:
             # Apply noise - here, we simply mask the token, but you can modify this
-            noised_tokens.append(random.choice(list(vocabulary)))
+            noise = random.choice(list(vocabulary))
+            noised_tokens.append(noise)
+            # print(f'{token} -> {noise}')
         else:
             noised_tokens.append(token)
     return ' '.join(noised_tokens)
 
-def noise_text_with_pos(text, vocabulary, noise_ratio=0.15):
+def noise_text_old(text, vocabulary, noise_ratio=0.05):
+    tokens = text.split(' ')
+    noised_tokens = []
+    for token in tokens:
+        if random.random() < noise_ratio:
+            # Apply noise - here, we simply mask the token, but you can modify this
+            noise = random.choice(list(vocabulary))
+            noised_tokens.append(noise)
+            # print(f'{token} -> {noise}')
+        else:
+            noised_tokens.append(token)
+    return ' '.join(noised_tokens)
+
+def noise_text_with_pos(text, vocab, vocab_by_pos, noise_ratio=0.15):
     # Tokenize and POS tag the input text
-    tokens = nltk.word_tokenize(text)
-    tagged_tokens = nltk.pos_tag(tokens)
-
-    # Create a dictionary to store vocabulary words by their POS tags
-    vocab_by_pos = {}
-    for word, pos in nltk.pos_tag(vocabulary):
-        if pos not in vocab_by_pos:
-            vocab_by_pos[pos] = []
-        vocab_by_pos[pos].append(word)
-
+    tagged_tokens = nltk.pos_tag(re.findall(r'\w+|[^\w\s]| ', text, re.UNICODE))
     # Replace tokens with same POS words from the vocabulary
     noised_tokens = []
     for word, tag in tagged_tokens:
         if random.random() < noise_ratio and tag in vocab_by_pos:
             # Replace with a word of the same POS
-            noised_tokens.append(random.choice(vocab_by_pos[tag]))
+            if len(vocab_by_pos[tag]) == 0:
+                noised_tokens.append(word)
+            else:
+                noise = random.choice(vocab_by_pos[tag])
+                # print(f'{word} -> {noise}')
+                noised_tokens.append(noise)
         else:
             noised_tokens.append(word)
 
     return ' '.join(noised_tokens)
 
-def delete_text(text, vocabulary, noise_ratio=0.15):
-    tokens = text.split()
+def delete_text(text, noise_ratio=0.075):
+    tokens = text.split(' ')
     noised_tokens = []
     for token in tokens:
         if random.random() < noise_ratio:
@@ -137,16 +152,6 @@ def delete_text(text, vocabulary, noise_ratio=0.15):
             noised_tokens.append(token)
     return ' '.join(noised_tokens)
 
-def noise_text(text, vocabulary, noise_ratio=0.15):
-    tokens = text.split()
-    noised_tokens = []
-    for token in tokens:
-        if random.random() < noise_ratio:
-            # Apply noise - here, we simply mask the token, but you can modify this
-            noised_tokens.append(random.choice(list(vocabulary)))
-        else:
-            noised_tokens.append(token)
-    return ' '.join(noised_tokens)
 
 def augment_with_noise(sample_dataset, train_dataset, vocab_set):
     augmented_train_data = []
@@ -161,10 +166,16 @@ def augment_with_noise(sample_dataset, train_dataset, vocab_set):
 
 def augment_with_noise_pos(sample_dataset, train_dataset, vocab_set):
     augmented_train_data = []
+    # Create a dictionary to store vocabulary words by their POS tags
+    vocab_by_pos = {}
+    for word, pos in nltk.pos_tag(vocab_set):
+        if pos not in vocab_by_pos:
+            vocab_by_pos[pos] = []
+        vocab_by_pos[pos].append(word)
     for item in sample_dataset:
         augmented_item = copy.deepcopy(item)
         original_text = item['statement']
-        noised_text = noise_text_with_pos(original_text, vocab_set)
+        noised_text = noise_text_with_pos(original_text, vocab_set, vocab_by_pos)
         augmented_item['statement'] = noised_text
         augmented_train_data.append(augmented_item)
     augmented_dataset = Dataset.from_dict({key: [d[key] for d in augmented_train_data] for key in train_dataset.features}, features=train_dataset.features) 
@@ -175,7 +186,7 @@ def augment_with_deletion(sample_dataset, train_dataset, vocab_set):
     for item in sample_dataset:
         augmented_item = copy.deepcopy(item)
         original_text = item['statement']
-        noised_text = delete_text(original_text, vocab_set)
+        noised_text = delete_text(original_text)
         augmented_item['statement'] = noised_text
         augmented_train_data.append(augmented_item)
     augmented_dataset = Dataset.from_dict({key: [d[key] for d in augmented_train_data] for key in train_dataset.features}, features=train_dataset.features) 

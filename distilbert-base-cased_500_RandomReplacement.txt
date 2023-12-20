@@ -1,0 +1,3 @@
+Last Version, Test Accuracy: 27.35775526110678%
+Averaged Model Test Accuracy: 27.35775526110678%
+Best Val Model, Test Accuracy: 28.604832424006236%

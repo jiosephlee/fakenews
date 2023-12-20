@@ -16,7 +16,7 @@ import nltk
 nltk.download('punkt')
 from nltk.tokenize import word_tokenize
 
-NUM_EPOCHS = 5
+NUM_EPOCHS = 7
 
 # Training Function for BERT Model
 def train_bert_cyclical(device, model, train_loader, val_loader, optimizer, num_epochs):
@@ -181,17 +181,23 @@ if __name__ == "__main__":
     train_texts = [item['statement'] for item in dataset['train']]
     for text in train_texts:
         vocab_set.update(word_tokenize(text.lower()))
+    print(vocab_set)
     # Augment the training dataset!!!
     print("---------Augmenting--------")
     temp = [row for row in train_dataset]
     num_of_aug = int(sys.argv[2])
+    print("...")
     augmented_dataset = augment_with_noise(temp[:num_of_aug],train_dataset, vocab_set)
+    print("...")
     augmented_dataset_2 = augment_with_noise_pos(temp[num_of_aug:2*num_of_aug],train_dataset, vocab_set)
+    print("...")
     augmented_dataset_3 = augment_with_deletion(temp[2*num_of_aug:3*num_of_aug],train_dataset, vocab_set)
     if len(augmented_dataset) > 0:
-        print(augmented_dataset[0])
+        print(augmented_dataset[0:5])
+        print(augmented_dataset_2[0:5])
+        print(augmented_dataset_3[0:5])
     # Concatenate the original train_dataset with the augmented_dataset
-    train_dataset = concatenate_datasets([train_dataset, augmented_dataset])
+    train_dataset = concatenate_datasets([train_dataset, augmented_dataset, augmented_dataset_2, augmented_dataset_3])
     print("---------Finished Augmenting--------")
 
     # Load Device
@@ -217,7 +223,6 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=6)
     model = model.to(device)
-    criterion = nn.CrossEntropyLoss()
     lr = 5e-5
     weight_decay=1e-4
     batch_size = 16
@@ -245,7 +250,7 @@ if __name__ == "__main__":
     plt.plot(val_error, label='Validation Error')
     plt.xlabel('Epoch')
     plt.ylabel('Error')
-    plt.title(f'Training and Validation Error of {model_name}-{num_of_aug}\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Error of {model_name}-{num_of_aug}-RandomReplacement\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
     plt.savefig(f'train_val_error_{model_name}_{num_of_aug}.png')
     plt.show()
@@ -256,12 +261,12 @@ if __name__ == "__main__":
     plt.plot(val_loss_values, label='Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title(f'Training and Validation Loss of {model_name}-{num_of_aug}\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
+    plt.title(f'Training and Validation Loss of {model_name}-{num_of_aug}-RandomReplacement\nlr={lr}, weight_decay={weight_decay}, batch_size={batch_size}')
     plt.legend()
     plt.savefig(f'train_val_loss_{model_name}_{num_of_aug}.png')
     plt.show()
 
-    with open(f'training_results_{model_name}_{num_of_aug}.csv', 'w', newline='') as file:
+    with open(f'training_results_{model_name}_{num_of_aug}-RandomReplacement.csv', 'w', newline='') as file:
         writer = csv.writer(file)
 
         # Write the header
@@ -325,6 +330,7 @@ if __name__ == "__main__":
     string_to_write = f"Last Version, Test Accuracy: {test_accuracy_1}%\nAveraged Model Test Accuracy: {test_accuracy_2}%\nBest Val Model, Test Accuracy: {test_accuracy_3}%"
 
     # Open a file in write mode
-    with open(f'{model_name}_{num_of_aug}.txt', 'w') as file:
+    with open(f'{model_name}_{num_of_aug}_RandomReplacement.txt', 'w') as file:
         # Write the string to the file
         file.write(string_to_write)
+        print(f'Accuracies written to {model_name}_{num_of_aug}_RandomReplacement.txt')
