@@ -1,0 +1,2 @@
+Test Accuracy: 28.448947778643802%
+SWA Test Accuracy: 28.448947778643802%
